@@ -1,16 +1,16 @@
 import tensorflow as tf
 from tflearn.layers.conv import global_avg_pool
 from tensorflow.contrib.layers import batch_norm, flatten
+from tensorflow.contrib.layers import xavier_initializer
 from tensorflow.contrib.framework import arg_scope
 import numpy as np
-import pandas as pd
 
 
 
 
 def conv_layer(input,filter,kernel,stride=1, layer_name='conv'):
 	with tf.name_scope(layer_name):
-		network = tf.layers.conv2d(inputs=input, filters=filter, kernel_size=kernel, strides=stride, padding='SAME')
+		network = tf.layers.conv2d(inputs=input, use_bias=False, filters=filter, kernel_size=kernel, strides=stride, padding='SAME')
 		return network
 
 
@@ -95,11 +95,22 @@ class DenseNet():
 
 	def dense_net(self, input_x):
 		x = conv_layer(input_x, filter=2 * self.filters, kernel=[7,7], stride=2, layer_name='conv0')
-		x = Max_Pooling(x, pool_size=[3,3], stride=2)
+		# x = Max_Pooling(x, pool_size=[3,3], stride=2)
 
+		'''
 		for i in range(self.nb_blocks):
 			x = self.dense_block(input_x=x, nb_layers=4, layer_name='dense_'+str(i))
 			x = self.transition_layer(x, scope='trans_'+str(i))
+		'''
+
+		x = self.dense_block(input_x=x, nb_layers=6, layer_name='dense_1')
+		x = self.transition_layer(x, scope='trans_1')
+
+		x = self.dense_block(input_x=x, nb_layers=12, layer_name='dense_2')
+		x = self.transition_layer(x, scope='trans_2')
+
+		x = self.dense_block(input_x=x, nb_layers=48, layer_name='dense_3')
+		x = self.transition_layer(x, scope='trans_3')
 
 		x = self.dense_block(input_x=x, nb_layers=32, layer_name='dense_final')
 

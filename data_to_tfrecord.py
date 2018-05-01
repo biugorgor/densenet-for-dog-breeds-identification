@@ -46,10 +46,12 @@ def make_tf_record():
 	with tf.Graph().as_default(),tf.Session() as sess:
 		# for data in [tf_train_data,tf_test_data]:
 
-		writer = tf.python_io.TFRecordWriter(tf_train_data)
+		# writer = tf.python_io.TFRecordWriter(tf_train_data)
+		writer = tf.python_io.TFRecordWriter(tf_test_data)
+
 
 		y,encoder = get_label()
-		for i in range(0,len(y['id'])):
+		for i in range(0,min(len(y['id']), 2048)):
 			img_file = y['id'][i]
 			path = os.path.join(data_train_dir,img_file+'.jpg')
 			image = open(path,'rb').read()

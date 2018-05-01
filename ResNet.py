@@ -19,7 +19,7 @@ def Global_Average_Pooling(x, stride=1):
 	return global_avg_pool(x, name='Global_avg_pooling')
 
 
-def Batch_Normalization(x, training, scope):
+def BatchNormalization(x, training, scope):
 	with arg_scope([batch_norm],
 				   scope=scope,
 				   updates_collections=None,
@@ -59,9 +59,11 @@ def Fully_connected(x, units=120, layer_name='fully_connected'):
 
 class ResNeXt():
 
-	def __init__(self, x, training, class_num):
-		self.class_num = class_num
+	def __init__(self, x, training, blocks=3, depth=64, class_num=120):
+		self.depth = depth
+		self.blocks = blocks
 		self.training = training
+		self.class_num = class_num
 		self.model = self.Build_SEnet(x)
 
 
@@ -76,11 +78,11 @@ class ResNeXt():
 
 	def transform_layer(self, x, stride, scope):
 		with tf.name_scope(scope):
-			x = conv_layer(x, filter=depth, kernel=[1,1], stride=1, layer_name=scope+'_conv1')
+			x = conv_layer(x, filter=self.depth, kernel=[1,1], stride=1, layer_name=scope+'_conv1')
 			x = BatchNormalization(x, training=self.training, scope=scope+'_batch1')
 			x = Relu(x)
 
-			x = conv_layer(x, filter=depth, kernel=[3,3], stride=stride, layer_name=scope+'_conv2')
+			x = conv_layer(x, filter=self.depth, kernel=[3,3], stride=stride, layer_name=scope+'_conv2')
 			x = BatchNormalization(x, training=self.training, scope=scope+'_batch2')
 			x = Relu(x)
 
@@ -90,12 +92,12 @@ class ResNeXt():
 	def transition_layer(self, x, out_dim, scope):
 		with tf.name_scope(scope):
 			x = conv_layer(x, filter=out_dim, kernel=[1,1], stride=1, layer_name=scope+'_conv1')
-			x = Batch_Normalization(x, training=self.training, scope=scope+'_batch1')
+			x = BatchNormalization(x, training=self.training, scope=scope+'_batch1')
 			# x = Relu(x)
 			return x
 
 
-	def split_layer(self, x, stride, cardinality=8, layer_name='split_layer'):
+	def split_layer(self, x, stride, cardinality=4, layer_name='split_layer'):
 		with tf.name_scope(layer_name):
 			layers_split = list()
 			for i in range(cardinality):
@@ -105,14 +107,14 @@ class ResNeXt():
 			return Concatenation(layers_split)
 
 
-	def squeeze_excitation_layer(self, x, class_num, ratio, layer_name):
+	def squeeze_excitation_layer(self, x, out_dim, ratio, layer_name):
 		with tf.name_scope(layer_name):
 			squeeze = Global_Average_Pooling(x)
-			excitation = Fully_connected(squeeze, units=class_num/ratio, layer_name=layer_name+'_fc1')
+			excitation = Fully_connected(squeeze, units=out_dim/ratio, layer_name=layer_name+'_fc1')
 			excitation = Relu(excitation)
-			excitation = Fully_connected(excitation, units=class_num, layer_name=layer_name+'_fc2')
+			excitation = Fully_connected(excitation, units=out_dim, layer_name=layer_name+'_fc2')
 			excitation = Sigmoid(excitation)
-			excitation = tf.reshape(excitation, [-1,1,1,class_num])
+			excitation = tf.reshape(excitation, [-1,1,1,out_dim])
 			scale = x * excitation
 
 			return scale
@@ -148,13 +150,13 @@ class ResNeXt():
 	def Build_SEnet(self, input_x):
 		input_x = self.first_layer(input_x, scope='first_layer')
 
-		x = self.residual_layer(input_x, out_dim=30, layer_num='1')
-		x = self.residual_layer(x, out_dim=60, layer_num='2')
-		x = self.residual_layer(x, out_dim=120, layer_num='3')
+		x = self.residual_layer(input_x, out_dim=64, res_block=self.blocks, layer_num='1')
+		x = self.residual_layer(x, out_dim=64, res_block=self.blocks, layer_num='2')
+		x = self.residual_layer(x, out_dim=64, res_block=self.blocks, layer_num='3')
 
 		x = Global_Average_Pooling(x)
 		x = flatten(x)
 
-		x = Fully_connected(x, layer_name='final_fully_connected')
+		x = Fully_connected(x, units=self.class_num, layer_name='final_fully_connected')
 		return x
 

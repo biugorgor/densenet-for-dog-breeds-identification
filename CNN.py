@@ -61,5 +61,3 @@ class CNN():
 		return y_conv
 
 
-
-

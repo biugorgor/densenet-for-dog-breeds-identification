@@ -22,18 +22,21 @@ data_train_dir = os.path.join(data_dir,'train')
 # data_train_dir = os.path.join(data_dir,'train_resize')
 data_test_dir = os.path.join(data_dir,'test')
 # tf_train_data = os.path.join(data_dir,'stanford.tfrecords')
-tf_train_data = os.path.join(data_dir,'stanford_crop_64.tfrecords')
-tf_test_data = os.path.join(data_dir,'train_resize.tfrecords')
+# tf_train_data = os.path.join(data_dir,'stanford_crop_64.tfrecords')
+# tf_test_data = os.path.join(data_dir,'test.tfrecords')
+tf_train_data = os.path.join(data_dir,'stanford_train.tfrecords')
+tf_test_data = os.path.join(data_dir,'stanford_test.tfrecords')
 
 
 # Hyperparameter
 growth_k = 32
 nb_block = 2 # how many (dense block + Transition Layer) ?
-init_learning_rate = 0.005
+init_learning_rate = 0.001
 epsilon = 1e-8 # AdamOptimizer epsilon
 # dropout_rate = 0.2
-batch_size = 16
-test_size = 2000
+batch_size = 32
+train_size = 19380
+test_size = 1200
 class_num =120
 
 # res parameter
@@ -44,11 +47,11 @@ res_blocks = 2
 nesterov_momentum = 0.9
 weight_decay = 1e-4
 
-total_epochs = 200
+total_epochs = 500
 
 
-img_width = 64
-img_height = 64
+img_width = 128
+img_height = 128
 
 
 
@@ -86,7 +89,7 @@ def read_tfrecord(record):
 
 def read_test_tfrecord(record):
 	features = tf.parse_single_example(record, features={
-		'one_hot_label': tf.FixedLenFeature([class_num], tf.float32),
+		'label_one_hot': tf.FixedLenFeature([class_num], tf.float32),
 		# 'one_hot_label': tf.FixedLenFeature([class_num], tf.float32),
 		'label': tf.FixedLenFeature([],tf.string),
 		'image_raw': tf.FixedLenFeature([],tf.string),
@@ -118,10 +121,9 @@ def get_batch(sess, tfrecords_path, batch_size=64):
 
 
 def get_test_batch(sess, tfrecords_path, batch_size=64):
-	# print(tfrecords_path)
 	filenames = tf.placeholder(tf.string)
 	data = tf.data.TFRecordDataset(filenames, compression_type='').map(read_test_tfrecord)
-	test_iter = data.take(test_size).repeat().batch(test_size).make_initializable_iterator()
+	test_iter = data.repeat().batch(batch_size).make_initializable_iterator()
 	
 	sess.run(test_iter.initializer,feed_dict={filenames: tfrecords_path})
 
@@ -165,14 +167,14 @@ def train_with_densenet():
 	test_summaries = []
 
 	with tf.Session() as sess:
-		ckpt = tf.train.get_checkpoint_state('./model/dense121')
-		if ckpt and tf.train.get_checkpoint_exists(ckpt.model_ckeckpoint_path):
+		ckpt = tf.train.get_checkpoint_state('./model/dense121_001_500_05')
+		if ckpt and ckpt.model_ckeckpoint_path:
 			saver.restore(sess, ckpt.model_ckeckpoint_path)
 		else:
 			sess.run(tf.global_variables_initializer())
 
 		# merged = tf.summary.merge_all()
-		writer = tf.summary.FileWriter('./dense121_logs', sess.graph)
+		writer = tf.summary.FileWriter('./logs/dense121_001_500_05_logs', sess.graph)
 
 		epoch_learning_rate = init_learning_rate
 
@@ -182,15 +184,20 @@ def train_with_densenet():
 		# batch_count = int((batch_count - test_size)/batch_size)
 
 		# test_batch_count = int((test_size+batch_size-1) / batch_size)
-		batch_count = int(18000/batch_size)
-		test_batch_count = int(2000/batch_size)
+		batch_count = int(train_size/batch_size)
+		test_batch_count = int(test_size/batch_size)
 
 		train_batch_next = get_batch(sess=sess, tfrecords_path=tf_train_data, batch_size=batch_size)
-		# test_batch_next = get_test_batch(sess=sess, tfrecords_path=tf_test_data, batch_size=batch_size)
+		test_batch_next = get_test_batch(sess=sess, tfrecords_path=tf_test_data, batch_size=batch_size)
 
 		for epoch in range(total_epochs):
-			if epoch == (total_epochs * 0.5) or epoch == (total_epochs * 0.75):
-				epoch_learning_rate = epoch_learning_rate / 10
+			# if epoch == (total_epochs * 0.5) or epoch == (total_epochs * 0.75):
+			# 	epoch_learning_rate = epoch_learning_rate / 10
+			if epoch > 50 and epoch % 50 == 0:
+				if epoch % 100:
+					epoch_learning_rate = epoch_learning_rate / 2
+				else:
+					epoch_learning_rate = epoch_learning_rate / 5
 
 			# train
 			train_accuracy = 0.0
@@ -207,7 +214,7 @@ def train_with_densenet():
 					label: batch_y,
 					learning_rate: epoch_learning_rate,
 					training_flag : True,
-					dropout_rate: 0.2
+					dropout_rate: 0.5
 				}
 
 				_, batch_loss, batch_acc = sess.run([train, cost, accuracy], feed_dict=train_feed_dict)
@@ -234,10 +241,11 @@ def train_with_densenet():
 
 
 			for step in range(test_batch_count):
-				# batch_features = sess.run(test_batch_next)
-				batch_features = sess.run(train_batch_next)
+				batch_features = sess.run(test_batch_next)
+				# batch_features = sess.run(train_batch_next)
 				test_batch_x = batch_features['image_raw']
 				test_batch_y = batch_features['label_one_hot']
+				# test_batch_y = batch_features['one_hot_label']
 				test_feed_dict = {
 					x: test_batch_x,
 					label: test_batch_y,
@@ -246,9 +254,9 @@ def train_with_densenet():
 					dropout_rate: 0.0
 				}
 				# test_predict = prediction.eval(feed_dict=test_feed_dict)
-				batch_test_loss, batch_test_accuracy = sess.run([cost,accuracy], feed_dict=test_feed_dict)
-				test_loss += batch_test_loss
-				test_accuracy += batch_test_accuracy
+				test_batch_loss, test_batch_accuracy = sess.run([cost,accuracy], feed_dict=test_feed_dict)
+				test_loss += test_batch_loss
+				test_accuracy += test_batch_accuracy
 				
 			test_loss /= test_batch_count
 			test_accuracy /= test_batch_count
@@ -261,13 +269,14 @@ def train_with_densenet():
 			test_line = "epoch:%d, Testing loss: %.4f, Testing accuracy:%.4f" % (epoch, test_loss,test_accuracy)
 			print(test_line)
 
-			with open('logs/dense121_logs.txt','a') as f:
+			with open('logs/dense121_001_500_05_logs.txt','a') as f:
 				f.write(line+'\r\n')
 				f.write(test_line+'\r\n')
 
 			writer.add_summary(train_summary, global_step=epoch)
 			writer.add_summary(test_summary, global_step=epoch)
-			saver.save(sess=sess, save_path='./model/dense121/dense121.ckpt')
+			if epoch % 10 == 0 or epoch == total_epochs-1:
+				saver.save(sess=sess, save_path='./model/dense121_001_500_05/dense121.ckpt')
 
 
 
@@ -631,7 +640,7 @@ def train_with_DNN():
 
 
 if __name__ == '__main__':
-	# train_with_densenet()
-	train_with_resnet()
+	train_with_densenet()
+	# train_with_resnet()
 	# train_with_DNN()
 	# train_with_cnn()
